@@ -626,11 +626,12 @@ try:
 except ImportError:  # Allows running from inside the backend directory.
     import arak_extensions  # noqa: F401
 
-# ---------------- Mount ----------------
-app.include_router(api_router)
 
 def _cors_origins():
-    raw = os.getenv("CORS_ORIGINS", "*")
+    raw = os.getenv(
+        "CORS_ORIGINS",
+        "https://araak-ceo.vercel.app,http://localhost:5173,http://127.0.0.1:5173"
+    )
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 app.add_middleware(
@@ -641,3 +642,7 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# ---------------- Mount ----------------
+app.include_router(api_router)
+
