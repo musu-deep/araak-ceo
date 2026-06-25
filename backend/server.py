@@ -34,6 +34,7 @@ api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("arak")
+logger.info("CORS_ORIGINS=%s", _cors_origins())
 
 # ---------------- Roles & Sectors ----------------
 # Roles: admin, ceo, vp_development, vp_investment, dev_manager, tracker
