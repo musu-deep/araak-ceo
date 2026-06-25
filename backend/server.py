@@ -17,14 +17,16 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from sqlalchemy import text
 from database_pg import AsyncSessionLocal
 from pydantic import BaseModel, Field, EmailStr
-
 # ---------------- DB ----------------
-mongo_url = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.getenv('DB_NAME', 'arak_executive_platform')]
+USE_MONGO = os.getenv("USE_MONGO", "false").lower() == "true"
 
-JWT_ALGORITHM = 'HS256'
-JWT_SECRET = os.getenv('JWT_SECRET', 'change-me-in-production')
+client = None
+db = None
+
+if USE_MONGO:
+    mongo_url = os.getenv("MONGO_URL", "mongodb://localhost:27017")
+    client = AsyncIOMotorClient(mongo_url)
+    db = client[os.getenv("DB_NAME", "arak_executive_platform")]
 
 # ---------------- App ----------------
 app = FastAPI(title="Arak Executive Platform")
@@ -538,8 +540,8 @@ SEED_PROJECTS = [
 
 @app.on_event("startup")
 async def seed_data():
-    if os.getenv("DB_PROVIDER") == "postgresql":
-        logger.info("PostgreSQL mode: skipping MongoDB seed")
+    if not USE_MONGO:
+        logger.info("MongoDB disabled: skipping MongoDB seed")
         return
     await db.users.create_index("email", unique=True)
     await db.projects.create_index("sector")
