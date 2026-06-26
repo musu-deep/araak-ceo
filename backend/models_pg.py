@@ -5,9 +5,9 @@ from sqlalchemy import (
     Text,
     DateTime,
     Boolean,
-    ForeignKey,
-    Float,
+    ForeignKey
 )
+
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -20,16 +20,11 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     name = Column(String(255), nullable=False)
-    email = Column(String(255), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(500), nullable=False)
 
-    role = Column(String(50), default="employee", index=True)
-    title = Column(String(255), default="")
-    department = Column(String(255), default="")
-    phone = Column(String(50), default="")
-    avatar_url = Column(String(500), default="")
+    role = Column(String(50), default="employee")
 
-    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -39,27 +34,11 @@ class Project(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     name = Column(String(255), nullable=False)
-    description = Column(Text, default="")
+    description = Column(Text)
 
-    sector = Column(String(100), default="arak_development", index=True)
-    status = Column(String(50), default="active", index=True)
-    priority = Column(String(50), default="medium", index=True)
-
-    progress = Column(Integer, default=0)
-    rag = Column(String(50), default="amber")
-
-    budget = Column(Float, default=0)
-    start_date = Column(DateTime, nullable=True)
-    end_date = Column(DateTime, nullable=True)
-
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    status = Column(String(50), default="active")
 
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
-
-    owner = relationship("User", foreign_keys=[owner_id])
-    creator = relationship("User", foreign_keys=[created_by])
 
 
 class Task(Base):
@@ -68,25 +47,16 @@ class Task(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     title = Column(String(255), nullable=False)
-    description = Column(Text, default="")
+    description = Column(Text)
 
-    sector = Column(String(100), default="arak_development", index=True)
-    status = Column(String(50), default="pending", index=True)
-    priority = Column(String(50), default="medium", index=True)
+    status = Column(String(50), default="pending")
+    priority = Column(String(50), default="medium")
 
-    progress = Column(Integer, default=0)
+    project_id = Column(Integer, ForeignKey("projects.id"))
 
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
-    assignee_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-
-    due_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project")
-    assignee = relationship("User", foreign_keys=[assignee_id])
-    creator = relationship("User", foreign_keys=[created_by])
 
 
 class ProgressUpdate(Base):
@@ -94,18 +64,14 @@ class ProgressUpdate(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    project_id = Column(Integer, ForeignKey("projects.id"))
 
-    update_type = Column(String(50), default="note")
-    title = Column(String(255), default="")
-    content = Column(Text, default="")
-    progress = Column(Integer, nullable=True)
+    title = Column(String(255))
+    details = Column(Text)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project")
-    user = relationship("User")
 
 
 class Meeting(Base):
@@ -113,19 +79,12 @@ class Meeting(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    title = Column(String(255), nullable=False)
-    description = Column(Text, default="")
-    location = Column(String(255), default="")
-    status = Column(String(50), default="scheduled")
+    title = Column(String(255))
+    description = Column(Text)
 
-    meeting_date = Column(DateTime, nullable=True)
-    start_time = Column(DateTime, nullable=True)
-    end_time = Column(DateTime, nullable=True)
+    meeting_date = Column(DateTime)
 
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-
-    creator = relationship("User")
 
 
 class MeetingRequest(Base):
@@ -133,17 +92,14 @@ class MeetingRequest(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    requester_name = Column(String(255), default="")
-    requester_email = Column(String(255), default="")
-    requester_phone = Column(String(50), default="")
+    requester_name = Column(String(255))
+    requester_email = Column(String(255))
 
-    subject = Column(String(255), default="")
-    details = Column(Text, default="")
+    subject = Column(String(255))
+    details = Column(Text)
 
-    status = Column(String(50), default="pending", index=True)
-    priority = Column(String(50), default="medium")
+    status = Column(String(50), default="pending")
 
-    requested_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -152,19 +108,10 @@ class Document(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    title = Column(String(255), nullable=False)
-    description = Column(Text, default="")
-    file_name = Column(String(500), default="")
-    file_url = Column(String(1000), default="")
-    document_type = Column(String(100), default="general")
-
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
-    uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    title = Column(String(255))
+    file_name = Column(String(500))
 
     created_at = Column(DateTime, default=datetime.utcnow)
-
-    project = relationship("Project")
-    uploader = relationship("User")
 
 
 class Notification(Base):
@@ -172,52 +119,12 @@ class Notification(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-
-    title = Column(String(255), default="")
-    message = Column(Text, default="")
-    notification_type = Column(String(100), default="info")
+    title = Column(String(255))
+    message = Column(Text)
 
     is_read = Column(Boolean, default=False)
+
     created_at = Column(DateTime, default=datetime.utcnow)
-
-    user = relationship("User")
-
-
-class Message(Base):
-    __tablename__ = "messages"
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    sender_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    receiver_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-
-    subject = Column(String(255), default="")
-    body = Column(Text, default="")
-
-    priority = Column(String(50), default="medium")
-    status = Column(String(50), default="sent")
-
-    is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    sender = relationship("User", foreign_keys=[sender_id])
-    receiver = relationship("User", foreign_keys=[receiver_id])
-
-
-class DailyReport(Base):
-    __tablename__ = "daily_reports"
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    title = Column(String(255), default="")
-    summary = Column(Text, default="")
-    report_date = Column(DateTime, default=datetime.utcnow)
-
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    creator = relationship("User")
 
 
 class VoiceDirective(Base):
@@ -225,29 +132,7 @@ class VoiceDirective(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    title = Column(String(255), default="")
-    transcript = Column(Text, default="")
-    status = Column(String(50), default="new")
+    title = Column(String(255))
+    transcript = Column(Text)
 
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-
-    creator = relationship("User")
-
-
-class PricingAnalysis(Base):
-    __tablename__ = "pricing_analyses"
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
-    axis = Column(String(255), default="")
-    project_text = Column(Text, default="")
-    instruction = Column(Text, default="")
-    answer = Column(Text, default="")
-
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    project = relationship("Project")
-    creator = relationship("User")
