@@ -1,7 +1,8 @@
 from dotenv import load_dotenv
 from pathlib import Path
+
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
 import os
 import uuid
@@ -9,14 +10,31 @@ import logging
 import bcrypt
 import jwt as pyjwt
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Literal
+from typing import Optional, Literal
 
 from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from sqlalchemy import text
 from database_pg import AsyncSessionLocal
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, EmailStr
+
+# ---------------- Config ----------------
+JWT_ALGORITHM = "HS256"
+JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+
+def _cors_origins():
+    raw = os.getenv(
+        "CORS_ORIGINS",
+        "https://araak-ceo.vercel.app,http://localhost:5173,http://127.0.0.1:5173",
+    )
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+# ---------------- Logging ----------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("arak")
+logger.info("CORS_ORIGINS=%s", _cors_origins())
+
 # ---------------- DB ----------------
 USE_MONGO = os.getenv("USE_MONGO", "false").lower() == "true"
 
@@ -30,19 +48,22 @@ if USE_MONGO:
 
 # ---------------- App ----------------
 app = FastAPI(title="Arak Executive Platform")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=_cors_origins(),
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
+
 api_router = APIRouter(prefix="/api")
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("arak")
-logger.info("CORS_ORIGINS=%s", _cors_origins())
-
 # ---------------- Roles & Sectors ----------------
-# Roles: admin, ceo, vp_development, vp_investment, dev_manager, tracker
-# Sectors: development, investment, arak_development, academy, digital, corporate
 DEV_SECTORS = ["development", "arak_development", "academy", "digital", "corporate"]
 
 def role_sector_filter(role: str) -> Optional[dict]:
-    """Return MongoDB filter for projects/tasks visibility. None means see-all."""
     if role in ("admin", "ceo", "tracker"):
         return None
     if role == "vp_development":
@@ -51,7 +72,7 @@ def role_sector_filter(role: str) -> Optional[dict]:
         return {"sector": "investment"}
     if role == "dev_manager":
         return {"sector": "arak_development"}
-    return {"_id": "__never__"}  # unknown -> nothing
+    return {"_id": "__never__"}
 
 def can_manage_users(role: str) -> bool:
     return role == "admin"
@@ -68,7 +89,9 @@ def verify_password(password: str, hashed: str) -> bool:
 
 def create_access_token(user_id: str, email: str, role: str) -> str:
     payload = {
-        "sub": user_id, "email": email, "role": role,
+        "sub": user_id,
+        "email": email,
+        "role": role,
         "exp": datetime.now(timezone.utc) + timedelta(hours=12),
         "type": "access",
     }
@@ -85,6 +108,7 @@ def create_refresh_token(user_id: str) -> str:
 # ---------------- Auth Dependency ----------------
 async def get_current_user(request: Request) -> dict:
     token = request.cookies.get("access_token")
+
     if not token:
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
@@ -95,6 +119,7 @@ async def get_current_user(request: Request) -> dict:
 
     try:
         payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+
         if payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Invalid token type")
 
@@ -105,7 +130,7 @@ async def get_current_user(request: Request) -> dict:
                     FROM users
                     WHERE id = :id
                 """),
-                {"id": int(payload["sub"])}
+                {"id": int(payload["sub"])},
             )
             row = result.mappings().first()
 
@@ -132,6 +157,7 @@ def require_roles(*roles):
         if user["role"] not in roles:
             raise HTTPException(status_code=403, detail="Permission denied")
         return user
+
     return _dep
 
 # ---------------- Models ----------------
@@ -202,18 +228,25 @@ def new_id() -> str:
 def calc_rag(project: dict) -> str:
     if project.get("status") == "completed":
         return "green"
+
     if project.get("status") == "cancelled":
         return "gray"
+
     progress = project.get("progress", 0)
     end_date_str = project.get("end_date")
+
     if not end_date_str:
-        if progress >= 70: return "green"
-        if progress >= 40: return "amber"
+        if progress >= 70:
+            return "green"
+        if progress >= 40:
+            return "amber"
         return "red"
+
     try:
         end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
         days_left = (end_date - now).days
+
         if days_left < 0 and progress < 100:
             return "red"
         if days_left < 7 and progress < 80:
@@ -223,16 +256,33 @@ def calc_rag(project: dict) -> str:
         if progress >= 40:
             return "amber"
         return "red"
+
     except Exception:
         return "amber"
 
 def set_cookies(response: Response, access: str, refresh: str):
     secure_cookies = os.getenv("COOKIE_SECURE", "false").lower() == "true"
     same_site = os.getenv("COOKIE_SAMESITE", "lax")
-    response.set_cookie("access_token", access, httponly=True, secure=secure_cookies,
-                        samesite=same_site, max_age=12*3600, path="/")
-    response.set_cookie("refresh_token", refresh, httponly=True, secure=secure_cookies,
-                        samesite=same_site, max_age=7*86400, path="/")
+
+    response.set_cookie(
+        "access_token",
+        access,
+        httponly=True,
+        secure=secure_cookies,
+        samesite=same_site,
+        max_age=12 * 3600,
+        path="/",
+    )
+
+    response.set_cookie(
+        "refresh_token",
+        refresh,
+        httponly=True,
+        secure=secure_cookies,
+        samesite=same_site,
+        max_age=7 * 86400,
+        path="/",
+    )
 
 # ---------------- Auth Endpoints ----------------
 @api_router.post("/auth/login")
@@ -246,7 +296,7 @@ async def login(payload: LoginInput, response: Response):
                 FROM users
                 WHERE email = :email
             """),
-            {"email": email}
+            {"email": email},
         )
         user = result.mappings().first()
 
@@ -255,6 +305,7 @@ async def login(payload: LoginInput, response: Response):
 
     access = create_access_token(str(user["id"]), email, user["role"])
     refresh = create_refresh_token(str(user["id"]))
+
     set_cookies(response, access, refresh)
 
     user_out = {
@@ -279,7 +330,7 @@ async def logout(response: Response, user=Depends(get_current_user)):
 async def me(user=Depends(get_current_user)):
     return {"user": user}
 
-# ---------------- Users (Admin) ----------------
+# ---------------- Users ----------------
 @api_router.get("/users")
 async def list_users(user=Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
@@ -307,9 +358,14 @@ async def list_users(user=Depends(get_current_user)):
 
 @api_router.post("/users")
 async def create_user(payload: UserCreate, admin=Depends(require_roles("admin"))):
+    if not USE_MONGO or db is None:
+        raise HTTPException(status_code=503, detail="MongoDB is disabled for this endpoint")
+
     email = payload.email.lower()
+
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
+
     doc = {
         "id": new_id(),
         "email": email,
@@ -320,142 +376,261 @@ async def create_user(payload: UserCreate, admin=Depends(require_roles("admin"))
         "active": payload.active,
         "created_at": now_iso(),
     }
+
     await db.users.insert_one(doc)
+
     return {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}
 
 @api_router.patch("/users/{user_id}")
 async def update_user(user_id: str, payload: UserUpdate, admin=Depends(require_roles("admin"))):
+    if not USE_MONGO or db is None:
+        raise HTTPException(status_code=503, detail="MongoDB is disabled for this endpoint")
+
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+
     if "password" in updates:
         updates["password_hash"] = hash_password(updates.pop("password"))
+
     if not updates:
         return {"ok": True}
+
     await db.users.update_one({"id": user_id}, {"$set": updates})
+
     u = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+
     return u
 
 @api_router.delete("/users/{user_id}")
 async def delete_user(user_id: str, admin=Depends(require_roles("admin"))):
+    if not USE_MONGO or db is None:
+        raise HTTPException(status_code=503, detail="MongoDB is disabled for this endpoint")
+
     await db.users.update_one({"id": user_id}, {"$set": {"active": False}})
+
     return {"ok": True}
 
 # ---------------- Projects ----------------
 @api_router.get("/projects")
 async def list_projects(user=Depends(get_current_user)):
+    if not USE_MONGO or db is None:
+        return []
+
     flt = role_sector_filter(user["role"]) or {}
+
     projects = await db.projects.find(flt, {"_id": 0}).sort("created_at", -1).to_list(500)
+
     for p in projects:
         p["rag"] = calc_rag(p)
+
     return projects
 
 @api_router.get("/projects/{project_id}")
 async def get_project(project_id: str, user=Depends(get_current_user)):
+    if not USE_MONGO or db is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
     p = await db.projects.find_one({"id": project_id}, {"_id": 0})
+
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
+
     flt = role_sector_filter(user["role"])
-    if flt is not None and p.get("sector") not in (flt.get("sector", {}).get("$in", []) + [flt.get("sector")] if isinstance(flt.get("sector"), dict) else [flt.get("sector")]):
-        # simpler check
+
+    if flt is not None:
+        allowed = True
+
         if "$in" in (flt.get("sector") or {}):
-            if p.get("sector") not in flt["sector"]["$in"]:
-                raise HTTPException(status_code=403, detail="Forbidden")
-        elif flt.get("sector") and p.get("sector") != flt["sector"]:
+            allowed = p.get("sector") in flt["sector"]["$in"]
+        elif flt.get("sector"):
+            allowed = p.get("sector") == flt["sector"]
+
+        if not allowed:
             raise HTTPException(status_code=403, detail="Forbidden")
+
     p["rag"] = calc_rag(p)
+
     return p
 
 @api_router.post("/projects")
 async def create_project(payload: ProjectInput, user=Depends(get_current_user)):
+    if not USE_MONGO or db is None:
+        raise HTTPException(status_code=503, detail="MongoDB is disabled for this endpoint")
+
     doc = payload.model_dump()
     doc["id"] = new_id()
     doc["created_by"] = user["id"]
     doc["created_at"] = now_iso()
     doc["updated_at"] = now_iso()
+
     if not doc.get("owner_id"):
         doc["owner_id"] = user["id"]
+
     await db.projects.insert_one(doc)
+
     doc["rag"] = calc_rag(doc)
     doc.pop("_id", None)
+
     return doc
 
 @api_router.patch("/projects/{project_id}")
 async def update_project(project_id: str, payload: dict, user=Depends(get_current_user)):
+    if not USE_MONGO or db is None:
+        raise HTTPException(status_code=503, detail="MongoDB is disabled for this endpoint")
+
     payload["updated_at"] = now_iso()
+
     await db.projects.update_one({"id": project_id}, {"$set": payload})
+
     p = await db.projects.find_one({"id": project_id}, {"_id": 0})
+
     if p:
         p["rag"] = calc_rag(p)
+
     return p
 
 @api_router.delete("/projects/{project_id}")
 async def delete_project(project_id: str, user=Depends(require_roles("admin", "ceo"))):
+    if not USE_MONGO or db is None:
+        raise HTTPException(status_code=503, detail="MongoDB is disabled for this endpoint")
+
     await db.projects.delete_one({"id": project_id})
     await db.tasks.delete_many({"project_id": project_id})
+
     return {"ok": True}
 
 # ---------------- Tasks ----------------
 @api_router.get("/tasks")
 async def list_tasks(user=Depends(get_current_user), project_id: Optional[str] = None):
+    if not USE_MONGO or db is None:
+        return []
+
     flt = role_sector_filter(user["role"]) or {}
+
     if project_id:
         flt["project_id"] = project_id
+
     tasks = await db.tasks.find(flt, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
     return tasks
 
 @api_router.post("/tasks")
 async def create_task(payload: TaskInput, user=Depends(get_current_user)):
+    if not USE_MONGO or db is None:
+        raise HTTPException(status_code=503, detail="MongoDB is disabled for this endpoint")
+
     doc = payload.model_dump()
     doc["id"] = new_id()
     doc["created_by"] = user["id"]
     doc["created_at"] = now_iso()
     doc["updated_at"] = now_iso()
+
     await db.tasks.insert_one(doc)
+
     doc.pop("_id", None)
+
     return doc
 
 @api_router.patch("/tasks/{task_id}")
 async def update_task(task_id: str, payload: TaskUpdate, user=Depends(get_current_user)):
+    if not USE_MONGO or db is None:
+        raise HTTPException(status_code=503, detail="MongoDB is disabled for this endpoint")
+
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
     updates["updated_at"] = now_iso()
+
     await db.tasks.update_one({"id": task_id}, {"$set": updates})
+
     t = await db.tasks.find_one({"id": task_id}, {"_id": 0})
+
     return t
 
 @api_router.delete("/tasks/{task_id}")
 async def delete_task(task_id: str, user=Depends(get_current_user)):
+    if not USE_MONGO or db is None:
+        raise HTTPException(status_code=503, detail="MongoDB is disabled for this endpoint")
+
     await db.tasks.delete_one({"id": task_id})
+
     return {"ok": True}
 
 @api_router.post("/tasks/{task_id}/approve")
 async def approve_task(task_id: str, user=Depends(require_roles("admin", "ceo", "vp_development", "vp_investment"))):
-    await db.tasks.update_one({"id": task_id}, {"$set": {"status": "completed", "approved_by": user["id"], "approved_at": now_iso(), "updated_at": now_iso()}})
+    if not USE_MONGO or db is None:
+        raise HTTPException(status_code=503, detail="MongoDB is disabled for this endpoint")
+
+    await db.tasks.update_one(
+        {"id": task_id},
+        {
+            "$set": {
+                "status": "completed",
+                "approved_by": user["id"],
+                "approved_at": now_iso(),
+                "updated_at": now_iso(),
+            }
+        },
+    )
+
     t = await db.tasks.find_one({"id": task_id}, {"_id": 0})
+
     return t
 
 # ---------------- Progress Updates ----------------
 @api_router.get("/progress")
 async def list_progress(user=Depends(get_current_user), project_id: Optional[str] = None):
+    if not USE_MONGO or db is None:
+        return []
+
     q = {"project_id": project_id} if project_id else {}
+
     items = await db.progress_updates.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+
     return items
 
 @api_router.post("/progress")
 async def create_progress(payload: ProgressUpdateInput, user=Depends(get_current_user)):
+    if not USE_MONGO or db is None:
+        raise HTTPException(status_code=503, detail="MongoDB is disabled for this endpoint")
+
     doc = payload.model_dump()
     doc["id"] = new_id()
     doc["user_id"] = user["id"]
     doc["user_name"] = user.get("name")
     doc["created_at"] = now_iso()
+
     await db.progress_updates.insert_one(doc)
+
     if payload.progress is not None:
-        await db.projects.update_one({"id": payload.project_id}, {"$set": {"progress": payload.progress, "updated_at": now_iso()}})
+        await db.projects.update_one(
+            {"id": payload.project_id},
+            {"$set": {"progress": payload.progress, "updated_at": now_iso()}},
+        )
+
     doc.pop("_id", None)
+
     return doc
 
 # ---------------- Dashboard ----------------
 @api_router.get("/dashboard")
 async def dashboard(user=Depends(get_current_user)):
+    if not USE_MONGO or db is None:
+        return {
+            "totals": {
+                "projects": 0,
+                "active_projects": 0,
+                "completed_projects": 0,
+                "tasks": 0,
+                "overdue_tasks": 0,
+                "avg_progress": 0,
+                "total_budget": 0,
+            },
+            "rag": {"red": 0, "amber": 0, "green": 0, "gray": 0},
+            "by_sector": [],
+            "task_status": {},
+            "recent_projects": [],
+        }
+
     flt = role_sector_filter(user["role"]) or {}
+
     projects = await db.projects.find(flt, {"_id": 0}).to_list(500)
     tasks = await db.tasks.find(flt, {"_id": 0}).to_list(2000)
 
@@ -463,10 +638,12 @@ async def dashboard(user=Depends(get_current_user)):
         p["rag"] = calc_rag(p)
 
     rag_count = {"red": 0, "amber": 0, "green": 0, "gray": 0}
+
     for p in projects:
         rag_count[p["rag"]] = rag_count.get(p["rag"], 0) + 1
 
     by_sector = {}
+
     for p in projects:
         s = p.get("sector", "other")
         by_sector.setdefault(s, {"count": 0, "progress_sum": 0})
@@ -474,11 +651,16 @@ async def dashboard(user=Depends(get_current_user)):
         by_sector[s]["progress_sum"] += p.get("progress", 0)
 
     sector_stats = [
-        {"sector": k, "count": v["count"], "avg_progress": round(v["progress_sum"]/max(v["count"], 1))}
+        {
+            "sector": k,
+            "count": v["count"],
+            "avg_progress": round(v["progress_sum"] / max(v["count"], 1)),
+        }
         for k, v in by_sector.items()
     ]
 
     task_status = {}
+
     for t in tasks:
         s = t.get("status", "pending")
         task_status[s] = task_status.get(s, 0) + 1
@@ -490,9 +672,11 @@ async def dashboard(user=Depends(get_current_user)):
 
     overdue = 0
     now = datetime.now(timezone.utc)
+
     for t in tasks:
         if t.get("status") in ("completed", "cancelled"):
             continue
+
         if t.get("due_date"):
             try:
                 d = datetime.fromisoformat(t["due_date"].replace("Z", "+00:00"))
@@ -501,7 +685,6 @@ async def dashboard(user=Depends(get_current_user)):
             except Exception:
                 pass
 
-    # progress timeline (last 8 weeks - synthesised from project updated_at)
     return {
         "totals": {
             "projects": len(projects),
@@ -520,100 +703,88 @@ async def dashboard(user=Depends(get_current_user)):
 
 # ---------------- Seed ----------------
 SEED_USERS = [
-    {"email": "admin@arak.com", "password": "Arak@2026", "name": "مدير النظام", "role": "admin", "title": "System Administrator"},
-    {"email": "ceo@arak.com", "password": "Arak@2026", "name": "د. علي العتيبي", "role": "ceo", "title": "الرئيس التنفيذي - مجموعة أراك"},
-    {"email": "vp.dev@arak.com", "password": "Arak@2026", "name": "نائب الرئيس - التنمية", "role": "vp_development", "title": "نائب الرئيس التنفيذي لقطاع التنمية"},
-    {"email": "vp.invest@arak.com", "password": "Arak@2026", "name": "نائب الرئيس - الاستثمار", "role": "vp_investment", "title": "نائب الرئيس التنفيذي لقطاع الاستثمار"},
-    {"email": "dev.manager@arak.com", "password": "Arak@2026", "name": "مدير أراك التنمية - مصر", "role": "dev_manager", "title": "مدير قطاع التنمية - مكتب أراك مصر"},
-    {"email": "tracker@arak.com", "password": "Arak@2026", "name": "مسؤول المتابعة التنفيذية", "role": "tracker", "title": "مسؤول المتابعة التنفيذية"},
+    {
+        "email": "admin@arak.com",
+        "password": "Arak@2026",
+        "name": "مدير النظام",
+        "role": "admin",
+        "title": "System Administrator",
+    },
+    {
+        "email": "ceo@arak.com",
+        "password": "Arak@2026",
+        "name": "د. علي العتيبي",
+        "role": "ceo",
+        "title": "الرئيس التنفيذي - مجموعة أراك",
+    },
+    {
+        "email": "vp.dev@arak.com",
+        "password": "Arak@2026",
+        "name": "نائب الرئيس - التنمية",
+        "role": "vp_development",
+        "title": "نائب الرئيس التنفيذي لقطاع التنمية",
+    },
+    {
+        "email": "vp.invest@arak.com",
+        "password": "Arak@2026",
+        "name": "نائب الرئيس - الاستثمار",
+        "role": "vp_investment",
+        "title": "نائب الرئيس التنفيذي لقطاع الاستثمار",
+    },
+    {
+        "email": "dev.manager@arak.com",
+        "password": "Arak@2026",
+        "name": "مدير أراك التنمية - مصر",
+        "role": "dev_manager",
+        "title": "مدير قطاع التنمية - مكتب أراك مصر",
+    },
+    {
+        "email": "tracker@arak.com",
+        "password": "Arak@2026",
+        "name": "مسؤول المتابعة التنفيذية",
+        "role": "tracker",
+        "title": "مسؤول المتابعة التنفيذية",
+    },
 ]
 
 SEED_PROJECTS = [
-    {"name": "تطوير أكاديمية أراك", "description": "إطلاق أكاديمية تدريبية متخصصة في الإدارة التنفيذية", "sector": "academy", "progress": 65, "status": "active", "budget": 1500000, "priority": "high", "end_date": (datetime.now(timezone.utc) + timedelta(days=45)).isoformat()},
-    {"name": "التحول الرقمي للمجموعة", "description": "أتمتة العمليات وتطبيق منصات السحابة في كافة الفروع", "sector": "digital", "progress": 42, "status": "active", "budget": 2800000, "priority": "critical", "end_date": (datetime.now(timezone.utc) + timedelta(days=90)).isoformat()},
-    {"name": "مشروع برج أراك التنمية - القاهرة الجديدة", "description": "تطوير مجمع سكني فاخر في القاهرة الجديدة", "sector": "arak_development", "progress": 78, "status": "active", "budget": 45000000, "priority": "critical", "end_date": (datetime.now(timezone.utc) + timedelta(days=180)).isoformat()},
-    {"name": "مجمع أراك التجاري - الإسكندرية", "description": "تطوير مركز تسوق ومجمع إداري", "sector": "arak_development", "progress": 25, "status": "active", "budget": 38000000, "priority": "high", "end_date": (datetime.now(timezone.utc) + timedelta(days=240)).isoformat()},
-    {"name": "محفظة الاستثمارات الإقليمية 2026", "description": "إدارة محفظة استثمارية متنوعة في الأسواق الناشئة", "sector": "investment", "progress": 88, "status": "active", "budget": 120000000, "priority": "critical", "end_date": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()},
-    {"name": "صندوق الاستثمار في التقنية الناشئة", "description": "استثمار في الشركات التقنية الناشئة بمنطقة الخليج", "sector": "investment", "progress": 35, "status": "active", "budget": 80000000, "priority": "high", "end_date": (datetime.now(timezone.utc) + timedelta(days=120)).isoformat()},
-    {"name": "تطوير منظومة الدعم المؤسسي", "description": "تحديث أنظمة الموارد البشرية والمالية", "sector": "corporate", "progress": 55, "status": "active", "budget": 950000, "priority": "medium", "end_date": (datetime.now(timezone.utc) + timedelta(days=60)).isoformat()},
-    {"name": "خطة التنمية الإستراتيجية 2026-2030", "description": "وضع خارطة طريق التنمية للسنوات الخمس القادمة", "sector": "development", "progress": 18, "status": "active", "budget": 500000, "priority": "high", "end_date": (datetime.now(timezone.utc) + timedelta(days=150)).isoformat()},
+    {
+        "name": "تطوير أكاديمية أراك",
+        "description": "إطلاق أكاديمية تدريبية متخصصة في الإدارة التنفيذية",
+        "sector": "academy",
+        "progress": 65,
+        "status": "active",
+        "budget": 1500000,
+        "priority": "high",
+        "end_date": (datetime.now(timezone.utc) + timedelta(days=45)).isoformat(),
+    },
+    {
+        "name": "التحول الرقمي للمجموعة",
+        "description": "أتمتة العمليات وتطبيق منصات السحابة في كافة الفروع",
+        "sector": "digital",
+        "progress": 42,
+        "status": "active",
+        "budget": 2800000,
+        "priority": "critical",
+        "end_date": (datetime.now(timezone.utc) + timedelta(days=90)).isoformat(),
+    },
 ]
 
 @app.on_event("startup")
 async def seed_data():
-    if not USE_MONGO:
+    if not USE_MONGO or db is None:
         logger.info("MongoDB disabled: skipping MongoDB seed")
         return
+
     await db.users.create_index("email", unique=True)
     await db.projects.create_index("sector")
     await db.tasks.create_index("project_id")
 
-    user_id_by_role = {}
-    for u in SEED_USERS:
-        existing = await db.users.find_one({"email": u["email"]})
-        if existing:
-            user_id_by_role[u["role"]] = existing["id"]
-            # ensure password matches seed and keep name/title aligned with current seed
-            updates = {"name": u["name"], "title": u["title"], "active": True}
-            if not verify_password(u["password"], existing["password_hash"]):
-                updates["password_hash"] = hash_password(u["password"])
-            await db.users.update_one({"email": u["email"]}, {"$set": updates})
-            continue
-        doc = {
-            "id": new_id(),
-            "email": u["email"],
-            "password_hash": hash_password(u["password"]),
-            "name": u["name"],
-            "role": u["role"],
-            "title": u["title"],
-            "active": True,
-            "created_at": now_iso(),
-        }
-        await db.users.insert_one(doc)
-        user_id_by_role[u["role"]] = doc["id"]
-
-    ceo_id = user_id_by_role.get("ceo")
-    if await db.projects.count_documents({}) == 0:
-        owner_map = {
-            "academy": user_id_by_role.get("vp_development"),
-            "digital": user_id_by_role.get("vp_development"),
-            "development": user_id_by_role.get("vp_development"),
-            "corporate": user_id_by_role.get("vp_development"),
-            "arak_development": user_id_by_role.get("dev_manager"),
-            "investment": user_id_by_role.get("vp_investment"),
-        }
-        for p in SEED_PROJECTS:
-            doc = {**p, "id": new_id(), "owner_id": owner_map.get(p["sector"], ceo_id),
-                   "created_by": ceo_id, "created_at": now_iso(), "updated_at": now_iso()}
-            await db.projects.insert_one(doc)
-
-        # Seed tasks per project
-        projects = await db.projects.find({}, {"_id": 0}).to_list(500)
-        statuses = ["pending", "in_progress", "awaiting_approval", "completed", "delayed"]
-        for p in projects:
-            for i in range(4):
-                task = {
-                    "id": new_id(),
-                    "title": f"مهمة #{i+1} - {p['name'][:25]}",
-                    "description": "مهمة تنفيذية ضمن إطار المشروع",
-                    "project_id": p["id"],
-                    "sector": p["sector"],
-                    "assignee_id": p.get("owner_id"),
-                    "due_date": (datetime.now(timezone.utc) + timedelta(days=10 + i*7)).isoformat(),
-                    "priority": ["low", "medium", "high", "critical"][i % 4],
-                    "status": statuses[i % len(statuses)],
-                    "progress": [20, 50, 80, 100, 30][i % 5],
-                    "created_by": ceo_id,
-                    "created_at": now_iso(),
-                    "updated_at": now_iso(),
-                }
-                await db.tasks.insert_one(task)
-
-    logger.info("Seed complete")
+    logger.info("MongoDB seed complete")
 
 @app.on_event("shutdown")
 async def shutdown():
-    if os.getenv("DB_PROVIDER") != "postgresql":
+    if USE_MONGO and client is not None:
         client.close()
 
 @api_router.get("/")
@@ -623,26 +794,8 @@ async def root():
 # Import extensions before mounting the router so all routes are registered once.
 try:
     from . import arak_extensions  # noqa: F401
-except ImportError:  # Allows running from inside the backend directory.
+except ImportError:
     import arak_extensions  # noqa: F401
-
-
-def _cors_origins():
-    raw = os.getenv(
-        "CORS_ORIGINS",
-        "https://araak-ceo.vercel.app,http://localhost:5173,http://127.0.0.1:5173"
-    )
-    return [origin.strip() for origin in raw.split(",") if origin.strip()]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=_cors_origins(),
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-)
 
 # ---------------- Mount ----------------
 app.include_router(api_router)
-
