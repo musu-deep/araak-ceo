@@ -1,5 +1,5 @@
 import React from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { ROLE_LABELS } from "../lib/api";
 import {
@@ -24,6 +24,8 @@ import {
   Scale,
   BrainCircuit,
   Tag,
+  FilePlus2,
+  Radar,
 } from "lucide-react";
 
 import ARAK_LOGO from "../assets/Araak_logo1.png";
@@ -55,6 +57,7 @@ const NAV = [
 export default function AppLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const canSeeNavItem = (item) => {
     if (FULL_ACCESS_ROLES.includes(user?.role)) return true;
@@ -65,6 +68,8 @@ export default function AppLayout() {
     await logout();
     navigate("/login");
   };
+
+  const showAdvisorActions = location.pathname === "/advisor";
 
   return (
     <div className="h-screen flex overflow-hidden" dir="rtl">
@@ -139,9 +144,43 @@ export default function AppLayout() {
 
       <main className="flex-1 pr-72 h-screen overflow-y-auto overflow-x-hidden">
         <div className="px-8 py-6 max-w-[1600px] mx-auto pb-28">
+          {showAdvisorActions && (
+            <div className="mb-5 flex flex-wrap items-center justify-end gap-3" data-testid="advisor-top-actions">
+              <button
+                data-testid="add-advisory-file-btn"
+                onClick={() => navigate("/documents")}
+                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-yellow-400 to-yellow-500 px-5 py-3 text-sm font-black text-black shadow-lg shadow-yellow-900/20 transition hover:from-yellow-300 hover:to-yellow-400"
+              >
+                <PlusIcon />
+                إضافة ملف استشاري
+              </button>
+
+              <button
+                data-testid="opportunity-lab-btn"
+                onClick={() => navigate("/opportunities")}
+                className="flex items-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-5 py-3 text-sm font-black text-cyan-200 transition hover:bg-cyan-500/20"
+              >
+                <Radar size={18} />
+                دراسة الفرص والعروض
+              </button>
+
+              <button
+                data-testid="pricing-top-btn"
+                onClick={() => navigate("/projects/pricing")}
+                className="flex items-center gap-2 rounded-xl border border-yellow-500/50 bg-yellow-500/10 px-5 py-3 text-sm font-black text-yellow-300 transition hover:bg-yellow-500 hover:text-black"
+              >
+                <Tag size={18} />
+                التسعير
+              </button>
+            </div>
+          )}
           <Outlet />
         </div>
       </main>
     </div>
   );
+}
+
+function PlusIcon() {
+  return <FilePlus2 size={18} />;
 }
