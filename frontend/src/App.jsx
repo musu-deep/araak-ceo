@@ -28,7 +28,6 @@ import AuditPage from "./pages/AuditPage";
 import LegalPage from "./pages/LegalPage";
 import AdvisorPage from "./pages/AdvisorPage";
 import PricingPage from "./pages/PricingPage";
-import OpportunityLabPage from "./pages/OpportunityLabPage";
 
 function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth();
@@ -76,7 +75,6 @@ function AppRoutes() {
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/legal" element={<LegalPage />} />
           <Route path="/advisor" element={<ProtectedRoute roles={["ceo", "admin"]}><AdvisorPage /></ProtectedRoute>} />
-          <Route path="/opportunities" element={<ProtectedRoute roles={["ceo", "admin", "vp_development", "vp_investment"]}><OpportunityLabPage /></ProtectedRoute>} />
           <Route path="/daily-report" element={<DailyReportPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
@@ -84,7 +82,7 @@ function AppRoutes() {
           <Route path="/admin" element={
             <ProtectedRoute roles={["admin"]}><AdminPage /></ProtectedRoute>
           } />
-          <Route path="/projects/pricing" element={<ProtectedRoute roles={["ceo", "admin"]}><PricingPage /></ProtectedRoute>} />
+          <Route path="/projects/pricing" element={<PricingPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
