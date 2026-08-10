@@ -13,19 +13,21 @@ ARAAK CEO OFFICE 360 owns institutional authentication, executive permissions, a
 ## Production architecture now
 
 ```text
-ARAAK Marketing & Tenders
-  institutional login ─────────────┐
-  employee directory ──────────────┤
-  opportunities / tenders ─────────┤
-  private attachments ─────────────┤
-                                   ↓
-                    ARAAK CEO OFFICE 360 / Render
-                    /api/auth/login
-                    /api/employees
-                    /api/marketing
-                                   ↓
-                      CEO PostgreSQL database
+ARAAK Marketing & Tenders browser
+            ↓
+Supabase Edge Functions
+  institutional-access
+  enterprise-records
+            ↓
+ARAAK CEO OFFICE 360 / Render
+  /api/auth/login
+  /api/employees
+  /api/marketing
+            ↓
+CEO PostgreSQL database
 ```
+
+The browser does not call the Render API directly for Marketing records. Supabase acts as the authenticated server-side bridge, eliminating a browser CORS dependency between the Marketing frontend and CEO OFFICE.
 
 This path is intentionally independent of Odoo API availability, so the marketing and tender workflow can run even when the Odoo subscription/deployment does not expose an external API.
 
@@ -82,21 +84,20 @@ The `/api/marketing` gateway creates its PostgreSQL schema lazily:
 
 Supported gateway actions are `list`, `create`, `download`, `sources`, `status`, and `verify_write`.
 
-## Marketing deployment
+## Supabase bridge
 
-The marketing frontend uses the Render CEO gateway as its canonical enterprise-record endpoint. The Supabase institutional-access function also routes CEO authentication and employee-directory calls to Render.
+Two Edge Functions are part of the adopted flow:
 
-Recommended deployment variables:
+- `institutional-access` — validates CEO OFFICE credentials, retrieves the employee directory, and provisions/refreshes the Marketing Supabase session.
+- `enterprise-records` — validates an active Marketing member and proxies opportunity/tender operations to the CEO OFFICE `/api/marketing` endpoint using the institutional token.
+
+Set this secret/environment variable for both functions when desired; the Render URL is also the safe code default:
 
 ```env
-# Marketing frontend
-VITE_ARAAK_CEO_API_URL=https://ceo-office-platform.onrender.com
-
-# Supabase institutional-access Edge Function
 ARAAK_CEO_API_URL=https://ceo-office-platform.onrender.com
 ```
 
-On the Render CEO service, `CORS_ORIGINS` must include the exact production origin of the Marketing & Tenders frontend.
+No `VITE_ARAAK_CEO_API_URL` is required for enterprise records because the browser talks to Supabase, not Render.
 
 ## Rollout order
 
@@ -104,7 +105,8 @@ On the Render CEO service, `CORS_ORIGINS` must include the exact production orig
 2. Confirm existing CEO routes still work: login, users, messages, meetings, documents, projects/tasks as currently configured.
 3. Confirm authenticated `GET /api/employees` returns the platform directory while Odoo is disabled.
 4. Confirm `POST /api/marketing` can list and create a test opportunity.
-5. Merge and deploy the Marketing & Tenders routing changes.
-6. Confirm institutional login from Marketing uses Render and opportunities/tenders are persisted in CEO PostgreSQL.
-7. Keep Odoo disabled until the Odoo subscription/deployment exposes the supported external API.
-8. When API access becomes available, activate the server-side connector in read-only mode and validate mapping before any approved write-back.
+5. Merge the Marketing & Tenders routing changes.
+6. Deploy both Supabase Edge Functions: `institutional-access` and `enterprise-records`.
+7. Deploy the Marketing frontend and confirm institutional login plus opportunity/tender persistence through CEO PostgreSQL.
+8. Keep Odoo disabled until the Odoo subscription/deployment exposes the supported external API.
+9. When API access becomes available, activate the server-side connector in read-only mode and validate mapping before any approved write-back.
