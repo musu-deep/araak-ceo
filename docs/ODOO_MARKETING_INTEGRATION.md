@@ -1,64 +1,108 @@
-# ARAAK CEO OFFICE 360 — Odoo + Marketing Integration
+# ARAAK CEO OFFICE 360 — Render, Marketing & Odoo
 
-The production gateway is `https://ceo-office-platform.onrender.com`.
+## Adopted production gateway
 
-## Architecture
+The institutional gateway is:
 
 ```text
-Odoo
-  hr.employee / project.project / project.task / ir.attachment
-        ↓
-ARAAK CEO OFFICE 360 on Render
-  /api/auth/login
-  /api/employees
-  /api/odoo/status
-  /api/odoo/test
-  /api/odoo/projects
-  /api/odoo/tasks
-  /api/marketing
-        ↓
-ARAAK Marketing & Tenders
-  institutional access + opportunities + tenders + attachments
+https://ceo-office-platform.onrender.com
 ```
 
-ARAAK CEO remains the identity and executive-governance gateway. Odoo stays server-side and its API key must never be exposed through a `VITE_` variable or browser bundle.
+ARAAK CEO OFFICE 360 owns institutional authentication, executive permissions, and the central API consumed by ARAAK Marketing & Tenders.
 
-## Render environment
+## Production architecture now
 
-Set these variables in the CEO OFFICE Render service:
+```text
+ARAAK Marketing & Tenders
+  institutional login ─────────────┐
+  employee directory ──────────────┤
+  opportunities / tenders ─────────┤
+  private attachments ─────────────┤
+                                   ↓
+                    ARAAK CEO OFFICE 360 / Render
+                    /api/auth/login
+                    /api/employees
+                    /api/marketing
+                                   ↓
+                      CEO PostgreSQL database
+```
+
+This path is fully independent of Odoo and can operate with the current Odoo Standard subscription.
+
+## Odoo status
+
+The backend contains a server-side, version-aware Odoo adapter for future use. It supports JSON-2 for newer Odoo deployments and XML-RPC for older supported deployments. However, Odoo Online Standard does not include the external API required for a direct server-to-server connector. For that reason the production default is intentionally:
+
+```env
+ODOO_ENABLED=false
+ODOO_URL=https://araakceo.odoo.com
+```
+
+Do not use private browser/session endpoints as a substitute for the supported external API.
+
+When Odoo is upgraded to an API-enabled Custom deployment, configure a dedicated integration user on Render only:
 
 ```env
 ODOO_ENABLED=true
-ODOO_URL=https://your-company.odoo.com
-ODOO_DATABASE=your_database
-ODOO_USERNAME=integration@your-company.com
+ODOO_URL=https://araakceo.odoo.com
+ODOO_DATABASE=your_database_if_required
+ODOO_USERNAME=integration-user@araak.com
 ODOO_API_KEY=server-side-secret
 ODOO_PROTOCOL=auto
 ODOO_TIMEOUT=20
 ODOO_READ_ONLY=true
-ODOO_MARKETING_MODEL=project.project
-CORS_ORIGINS=https://ceo-office-platform.onrender.com,https://YOUR-MARKETING-DOMAIN
 ```
 
-Start with `ODOO_READ_ONLY=true`, verify `/api/odoo/test`, employee mapping, projects and tasks, then set `ODOO_READ_ONLY=false` only when write-back for opportunities/tenders is approved.
+Never expose `ODOO_API_KEY` through a `VITE_` variable, repository file, frontend bundle, or client-side code.
 
-## Odoo permissions
+Start read-only, verify `/api/odoo/test`, `/api/odoo/projects`, `/api/odoo/tasks`, and `/api/employees`, then approve write-back as a separate governance step.
 
-The dedicated Odoo integration user should have only the models required by the approved scope:
+## CEO OFFICE endpoints added
 
-- read: `hr.employee`
-- read: `project.project`
-- read: `project.task`
-- read/write after approval: the model selected by `ODOO_MARKETING_MODEL`
-- read/write after approval: `ir.attachment` for private opportunity/tender files
+Authenticated users:
+
+- `GET /api/employees` — Odoo employee directory when enabled; otherwise the CEO OFFICE user directory.
+- `GET /api/odoo/status` — safe Odoo configuration status without secrets.
+- `GET /api/odoo/projects` — future API-enabled Odoo project feed.
+- `GET /api/odoo/tasks` — future API-enabled Odoo task feed.
+- `POST /api/marketing` — central opportunities/tenders gateway.
+
+CEO / Admin:
+
+- `POST /api/odoo/test` — live Odoo connection test when the connector is enabled.
+
+## Marketing central storage
+
+The `/api/marketing` gateway creates its PostgreSQL schema lazily:
+
+- `marketing_records` — opportunities and tenders plus structured JSON metadata.
+- `marketing_attachments` — private attached files linked to the central record.
+
+Supported gateway actions are `list`, `create`, `download`, `sources`, `status`, and `verify_write`.
 
 ## Marketing deployment
 
-The marketing frontend and Supabase `institutional-access` function should point to:
+The marketing frontend uses the Render CEO gateway as its canonical enterprise-record endpoint. The Supabase institutional-access function also routes CEO authentication and employee-directory calls to Render.
+
+Recommended deployment variables:
 
 ```env
+# Marketing frontend
 VITE_ARAAK_CEO_API_URL=https://ceo-office-platform.onrender.com
+
+# Supabase institutional-access Edge Function (optional because Render is now the code default)
 ARAAK_CEO_API_URL=https://ceo-office-platform.onrender.com
 ```
 
-The first variable belongs to the marketing frontend deployment. The second belongs to the Supabase Edge Function environment.
+On the Render CEO service, `CORS_ORIGINS` must include the exact production origin of the Marketing & Tenders frontend.
+
+## Rollout order
+
+1. Merge and deploy the CEO OFFICE gateway changes to Render.
+2. Confirm existing CEO routes still work: login, users, messages, meetings, documents, projects/tasks as currently configured.
+3. Confirm authenticated `GET /api/employees` returns the platform directory with Odoo disabled.
+4. Confirm `POST /api/marketing` can list and create a test opportunity and remove/ignore the test record as appropriate.
+5. Merge and deploy the Marketing & Tenders routing changes.
+6. Confirm institutional login from Marketing uses Render and opportunities/tenders are persisted in CEO PostgreSQL.
+7. Keep Odoo disabled until the Odoo subscription/deployment exposes the supported external API.
+8. After an Odoo upgrade, activate the server-side connector in read-only mode and validate mapping before any approved write-back.

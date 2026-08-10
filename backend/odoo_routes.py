@@ -1,4 +1,4 @@
-"""Odoo + ARAAK Marketing routes registered inside the existing CEO API router."""
+"""Odoo-ready + ARAAK Marketing routes registered inside the existing CEO API router."""
 from __future__ import annotations
 
 from typing import Any
@@ -142,13 +142,22 @@ async def odoo_status(user=Depends(get_current_user)):
 
 @api_router.post("/odoo/test")
 async def odoo_test(user=Depends(require_roles("admin", "ceo"))):
-    return await get_odoo_connector(refresh=True).status(check=True)
+    connector = get_odoo_connector(refresh=True)
+    if not connector.config.configured:
+        return {
+            **(await connector.status(check=False)),
+            "plan_note": "الموصل جاهز برمجياً لكنه غير مفعّل في بيئة الإنتاج الحالية.",
+        }
+    return await connector.status(check=True)
 
 
 @api_router.get("/odoo/projects")
 async def odoo_projects(user=Depends(get_current_user)):
+    connector = get_odoo_connector()
+    if not connector.config.configured:
+        raise HTTPException(status_code=503, detail="موصل Odoo غير مفعّل في بيئة الإنتاج الحالية.")
     try:
-        records = await get_odoo_connector().compatible_search_read(
+        records = await connector.compatible_search_read(
             "project.project", [], PROJECT_FIELDS, 500, "write_date desc, id desc"
         )
         return {"source": "odoo", "projects": records, "total": len(records)}
@@ -158,8 +167,11 @@ async def odoo_projects(user=Depends(get_current_user)):
 
 @api_router.get("/odoo/tasks")
 async def odoo_tasks(user=Depends(get_current_user)):
+    connector = get_odoo_connector()
+    if not connector.config.configured:
+        raise HTTPException(status_code=503, detail="موصل Odoo غير مفعّل في بيئة الإنتاج الحالية.")
     try:
-        records = await get_odoo_connector().compatible_search_read(
+        records = await connector.compatible_search_read(
             "project.task", [], TASK_FIELDS, 1500, "write_date desc, id desc"
         )
         return {"source": "odoo", "tasks": records, "total": len(records)}
@@ -169,8 +181,19 @@ async def odoo_tasks(user=Depends(get_current_user)):
 
 @api_router.get("/employees")
 async def employee_directory(user=Depends(get_current_user)):
+    connector = get_odoo_connector()
+    if not connector.config.configured:
+        employees = await _platform_fallback()
+        return {
+            "source": "platform",
+            "employees": employees,
+            "total": len(employees),
+            "warning": None,
+            "compensation_visible": False,
+            "odoo_ready": False,
+        }
     try:
-        rows = await get_odoo_connector().compatible_search_read(
+        rows = await connector.compatible_search_read(
             "hr.employee", [], EMPLOYEE_FIELDS, 1000, "name asc, id asc"
         )
         employees = [_employee(row) for row in rows]
@@ -180,6 +203,7 @@ async def employee_directory(user=Depends(get_current_user)):
             "total": len(employees),
             "warning": None,
             "compensation_visible": False,
+            "odoo_ready": True,
         }
     except Exception as exc:
         employees = await _platform_fallback()
@@ -187,8 +211,9 @@ async def employee_directory(user=Depends(get_current_user)):
             "source": "platform",
             "employees": employees,
             "total": len(employees),
-            "warning": f"Odoo unavailable: {str(exc)[:220]}",
+            "warning": f"تعذر قراءة دليل Odoo؛ تم استخدام دليل CEO OFFICE: {str(exc)[:180]}",
             "compensation_visible": False,
+            "odoo_ready": False,
         }
 
 
@@ -200,5 +225,5 @@ async def marketing_gateway(payload: dict, user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    except (OdooConnectorError, RuntimeError) as exc:
+    except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
