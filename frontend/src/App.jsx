@@ -28,6 +28,7 @@ import AuditPage from "./pages/AuditPage";
 import LegalPage from "./pages/LegalPage";
 import AdvisorPage from "./pages/AdvisorPage";
 import PricingPage from "./pages/PricingPage";
+import ExecutiveExecutionPage from "./pages/ExecutiveExecutionPage";
 
 function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth();
@@ -61,6 +62,7 @@ function AppRoutes() {
         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/execution" element={<ExecutiveExecutionPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
           <Route path="/tasks" element={<TasksPage />} />
