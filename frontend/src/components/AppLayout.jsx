@@ -24,6 +24,7 @@ import {
   Scale,
   BrainCircuit,
   Tag,
+  Layers3,
 } from "lucide-react";
 
 import ARAK_LOGO from "../assets/Araak_logo1.png";
@@ -33,6 +34,7 @@ const FULL_ACCESS_ROLES = ["ceo", "admin"];
 const NAV = [
   { to: "/dashboard", icon: LayoutDashboard, label: "لوحة المتابعة", testId: "nav-dashboard", roles: ["ceo", "admin"] },
   { to: "/daily-report", icon: FileText, label: "الموجز اليومي", testId: "nav-daily-report", roles: ["ceo", "admin", "vp_development", "vp_investment"] },
+  { to: "/execution", icon: Layers3, label: "التنفيذ المؤسسي", testId: "nav-execution", roles: ["ceo", "admin", "vp_development", "vp_investment"] },
   { to: "/projects", icon: FolderKanban, label: "المشاريع", testId: "nav-projects", roles: ["ceo", "admin", "vp_development", "vp_investment", "dev_manager"] },
   { to: "/projects/pricing", icon: Tag, label: "منهجية التسعير", testId: "nav-pricing", roles: ["ceo", "admin"] },
   { to: "/tasks", icon: ListChecks, label: "إدارة المهام", testId: "nav-tasks", roles: ["ceo", "admin", "vp_development", "vp_investment", "dev_manager", "tracker"] },
